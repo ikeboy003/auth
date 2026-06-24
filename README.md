@@ -24,7 +24,11 @@ Zero-config when any of these env pairs are present (checked in order):
 
 Admin group defaults to `admin` (override with `NEXT_PUBLIC_AUTH_ADMIN_GROUP`).
 
-Or configure explicitly (non-Next apps, or when env isn't inlined):
+> **Bundled apps (Next / Vite): configure explicitly.** The env auto-read uses
+> `process.env[name]` *dynamically*, and bundlers only inline *static*
+> `process.env.NEXT_PUBLIC_X` literals — so in the browser the auto-read sees
+> nothing. Pass the values from your app (where they inline) via the
+> `AuthProvider` `config` prop, or `configureAuth()`:
 
 ```ts
 import { configureAuth } from "@ikeboy003/auth";
@@ -52,9 +56,17 @@ export const db = createClient({ baseUrl, getToken: getIdToken });
 ## React
 
 ```tsx
-// Wrap once, at the root.
+// Wrap once, at the root. In a bundled app, pass config (statically-inlined
+// env from YOUR app) so the browser actually gets the pool ids:
 import { AuthProvider } from "@ikeboy003/auth/react";
-<AuthProvider>{children}</AuthProvider>;
+<AuthProvider
+  config={{
+    userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID,
+    userPoolClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
+  }}
+>
+  {children}
+</AuthProvider>;
 
 // Anywhere below it.
 import { useAuth } from "@ikeboy003/auth/react";
