@@ -17,14 +17,28 @@ import {
   configureAuth,
   getCurrentUser,
   signIn as coreSignIn,
+  signUp as coreSignUp,
+  confirmSignUp as coreConfirmSignUp,
+  resendSignUpCode as coreResendSignUpCode,
   signOut as coreSignOut,
 } from "./cognito.js";
-import type { AuthConfig, AuthUser } from "./types.js";
+import type { AuthConfig, AuthUser, SignUpAttributes } from "./types.js";
 
 export type AuthState = {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Register a new account — Cognito emails a confirmation code. Optional
+   *  `attributes` set Cognito standard attrs (name/phone/birthdate) at sign-up. */
+  signUp: (
+    email: string,
+    password: string,
+    attributes?: SignUpAttributes,
+  ) => Promise<void>;
+  /** Confirm the new account with the emailed code. */
+  confirmSignUp: (email: string, code: string) => Promise<void>;
+  /** Resend the sign-up confirmation code. */
+  resendSignUpCode: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -67,6 +81,23 @@ export function AuthProvider({
     [refresh],
   );
 
+  // Sign-up + confirm don't establish a session (the user signs in afterward),
+  // so they don't refresh() — they just normalize the email and delegate.
+  const signUp = useCallback(
+    async (email: string, password: string, attributes?: SignUpAttributes) => {
+      await coreSignUp(email.trim().toLowerCase(), password, attributes);
+    },
+    [],
+  );
+
+  const confirmSignUp = useCallback(async (email: string, code: string) => {
+    await coreConfirmSignUp(email.trim().toLowerCase(), code.trim());
+  }, []);
+
+  const resendSignUpCode = useCallback(async (email: string) => {
+    await coreResendSignUpCode(email.trim().toLowerCase());
+  }, []);
+
   const signOut = useCallback(async () => {
     await coreSignOut();
     setUser(null);
@@ -74,7 +105,16 @@ export function AuthProvider({
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signIn, signOut, refresh }}
+      value={{
+        user,
+        loading,
+        signIn,
+        signUp,
+        confirmSignUp,
+        resendSignUpCode,
+        signOut,
+        refresh,
+      }}
     >
       {children}
     </AuthContext.Provider>

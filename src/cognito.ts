@@ -6,12 +6,15 @@
 import { Amplify } from "aws-amplify";
 import {
   signIn as amplifySignIn,
+  signUp as amplifySignUp,
+  confirmSignUp as amplifyConfirmSignUp,
+  resendSignUpCode as amplifyResendSignUpCode,
   signOut as amplifySignOut,
   getCurrentUser as amplifyGetCurrentUser,
   fetchUserAttributes,
   fetchAuthSession,
 } from "aws-amplify/auth";
-import type { AuthConfig, AuthUser } from "./types.js";
+import type { AuthConfig, AuthUser, SignUpAttributes } from "./types.js";
 
 function readEnv(name: string): string | undefined {
   // Guarded — `process` may be undefined in some browser bundles.
@@ -104,6 +107,41 @@ export async function signIn(email: string, password: string) {
 export async function signOut() {
   ensureConfigured();
   return amplifySignOut();
+}
+
+/** Register a new user. Cognito emails a confirmation code; the account stays
+ *  unconfirmed until `confirmSignUp`. The email is the username (these pools are
+ *  email sign-in) and is also stored as the `email` attribute for delivery. */
+export async function signUp(
+  email: string,
+  password: string,
+  attributes: SignUpAttributes = {},
+) {
+  ensureConfigured();
+  // Attributes are passed through verbatim as Cognito user attributes — the
+  // caller supplies the standard names its pool uses (e.g. `phone_number`,
+  // `birthdate`). The library holds no per-app opinion about which fields a
+  // sign-up collects. email is always set as the username + email attribute;
+  // empty values are skipped so we never write blank attrs.
+  const userAttributes: Record<string, string> = { email };
+  for (const [name, value] of Object.entries(attributes)) {
+    if (value == null || value === "") continue;
+    userAttributes[name] = value;
+  }
+  return amplifySignUp({ username: email, password, options: { userAttributes } });
+}
+
+/** Confirm a freshly-registered account with the code Cognito emailed. After
+ *  this resolves the account is active and `signIn` will succeed. */
+export async function confirmSignUp(email: string, code: string) {
+  ensureConfigured();
+  return amplifyConfirmSignUp({ username: email, confirmationCode: code });
+}
+
+/** Resend the sign-up confirmation code (e.g. it expired or never arrived). */
+export async function resendSignUpCode(email: string) {
+  ensureConfigured();
+  return amplifyResendSignUpCode({ username: email });
 }
 
 /** The signed-in user (sub + email + Cognito groups), or null. */

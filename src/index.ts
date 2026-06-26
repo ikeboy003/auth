@@ -6,6 +6,9 @@ export {
   getCurrentUser,
   getIdToken,
   signIn,
+  signUp,
+  confirmSignUp,
+  resendSignUpCode,
   signOut,
 } from "./cognito.js";
-export type { AuthConfig, AuthUser } from "./types.js";
+export type { AuthConfig, AuthUser, SignUpAttributes } from "./types.js";

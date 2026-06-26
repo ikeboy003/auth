@@ -7,6 +7,19 @@ export type AuthUser = {
   isAdmin: boolean;
 };
 
+/** Extra Cognito user attributes to set at registration, keyed by their Cognito
+ *  attribute names and passed through verbatim — the library has no per-app
+ *  opinion about which fields a sign-up collects. `phone_number` and `birthdate`
+ *  are named only as common conveniences (phone is E.164 `+15551234567`,
+ *  birthdate is `YYYY-MM-DD`); any other standard/custom attribute works too.
+ *  email is set automatically from the username. Empty values are skipped. */
+export type SignUpAttributes = {
+  phone_number?: string;
+  birthdate?: string;
+  name?: string;
+  [attribute: string]: string | undefined;
+};
+
 /** Pool configuration. Resolved from env at import, or set via `configureAuth`. */
 export type AuthConfig = {
   userPoolId?: string;
