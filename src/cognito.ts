@@ -169,9 +169,32 @@ export async function signIn(email: string, password: string) {
   });
 }
 
+/** LOCAL sign-out — clears the Cognito token store and reloads to the site root.
+ *
+ *  Deliberately does NOT call Amplify's `signOut()`: with `loginWith.oauth`
+ *  configured it force-redirects to the Cognito Hosted-UI `/logout` page (the
+ *  "ugly" screen) and then to the FIRST registered logout URL — i.e. off your
+ *  own site. Clearing the `CognitoIdentityServiceProvider.*` keys (Amplify's
+ *  default localStorage token store) signs the user out locally; the hard reload
+ *  to `/` drops Amplify's in-memory token cache too, so the app comes back
+ *  signed-out ON THE CURRENT SITE. The Cognito/Google IdP session cookie is left
+ *  intact — fine for staff; a shared-device "full" logout isn't needed here. */
 export async function signOut() {
   ensureConfigured();
-  return amplifySignOut();
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const store = window.localStorage;
+    const del: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (k && k.startsWith("CognitoIdentityServiceProvider.")) del.push(k);
+    }
+    del.forEach((k) => store.removeItem(k));
+  } catch {
+    /* storage blocked — fall through to reload anyway */
+  }
+  // Reload to the site's own root: clears in-memory tokens, stays on this site.
+  window.location.replace("/");
 }
 
 /** Register a new user. Cognito emails a confirmation code; the account stays

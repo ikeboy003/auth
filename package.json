@@ -1,6 +1,6 @@
 {
   "name": "@ikeboy003/auth",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Headless Cognito auth/session primitive: configure-at-import from env (or explicit), framework-agnostic core + optional React binding. Drop-in — wire nothing when the env is set. No brand/routing logic baked in.",
   "type": "module",
   "exports": {
