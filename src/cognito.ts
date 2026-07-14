@@ -139,9 +139,17 @@ export function oauthEnabled(): boolean {
 
 /** Redirect to Cognito's Hosted UI to sign in with Google. On return, Amplify
  *  exchanges the `?code=` for tokens automatically (no callback code needed) —
- *  the app's `getCurrentUser()` then resolves the federated session. */
+ *  the app's `getCurrentUser()` then resolves the federated session. Clears any
+ *  existing session first: Amplify throws `UserAlreadyAuthenticatedException`
+ *  ("There is already a signed in user") if a stale session is present, so we
+ *  sign out (best-effort) the same way `signIn` does. */
 export async function signInWithGoogle(): Promise<void> {
   ensureConfigured();
+  try {
+    await amplifySignOut();
+  } catch {
+    /* nothing to clear */
+  }
   await amplifySignInWithRedirect({ provider: "Google" });
 }
 
