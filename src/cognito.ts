@@ -11,8 +11,6 @@ import {
   resendSignUpCode as amplifyResendSignUpCode,
   signOut as amplifySignOut,
   signInWithRedirect as amplifySignInWithRedirect,
-  getCurrentUser as amplifyGetCurrentUser,
-  fetchUserAttributes,
   fetchAuthSession,
 } from "aws-amplify/auth";
 import type { AuthConfig, AuthUser, SignUpAttributes } from "./types.js";
@@ -211,29 +209,27 @@ export async function resendSignUpCode(email: string) {
   return amplifyResendSignUpCode({ username: email });
 }
 
-/** The signed-in user (sub + email + Cognito groups), or null. */
+/** The signed-in user (sub + email + Cognito groups), or null.
+ *
+ *  Reads identity from the ID token claims — NOT the Cognito `GetUser` API.
+ *  `GetUser` (what `fetchUserAttributes` calls) requires the access token to
+ *  carry the `aws.cognito.signin.user.admin` scope, which the Hosted-UI / OAuth
+ *  flow (Google federation) does NOT grant — so `fetchUserAttributes` 400s
+ *  ("Access Token does not have required scopes") for every federated user,
+ *  making them look signed-out. The ID token already holds sub/email/groups for
+ *  both password and federated sign-ins, so we decode it and skip the call. */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const config = ensureConfigured();
   if (!config.userPoolId || !config.userPoolClientId) return null;
   try {
-    await amplifyGetCurrentUser();
-    const attrs = await fetchUserAttributes();
-    let groups: string[] = [];
-    try {
-      const session = await fetchAuthSession();
-      const idToken = session.tokens?.idToken?.toString();
-      if (idToken) {
-        const payload = JSON.parse(atob(idToken.split(".")[1] ?? "")) as {
-          "cognito:groups"?: string[];
-        };
-        groups = payload["cognito:groups"] ?? [];
-      }
-    } catch {
-      /* no session / no groups claim */
-    }
+    const session = await fetchAuthSession();
+    const claims = session.tokens?.idToken?.payload;
+    if (!claims) return null; // no valid session
+    const rawGroups = claims["cognito:groups"];
+    const groups = Array.isArray(rawGroups) ? (rawGroups as string[]) : [];
     return {
-      sub: attrs.sub ?? "",
-      email: attrs.email ?? "",
+      sub: typeof claims.sub === "string" ? claims.sub : "",
+      email: typeof claims.email === "string" ? claims.email : "",
       groups,
       isAdmin: groups.includes(config.adminGroup),
     };
