@@ -10,11 +10,22 @@ import {
   confirmSignUp as amplifyConfirmSignUp,
   resendSignUpCode as amplifyResendSignUpCode,
   signOut as amplifySignOut,
+  signInWithRedirect as amplifySignInWithRedirect,
   getCurrentUser as amplifyGetCurrentUser,
   fetchUserAttributes,
   fetchAuthSession,
 } from "aws-amplify/auth";
 import type { AuthConfig, AuthUser, SignUpAttributes } from "./types.js";
+
+/** Split a comma/space-separated env list into a trimmed, non-empty array. */
+function envList(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const list = raw
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length ? list : undefined;
+}
 
 function readEnv(name: string): string | undefined {
   // Guarded — `process` may be undefined in some browser bundles.
@@ -61,17 +72,52 @@ function resolveConfig(): AuthConfig {
       overrides.adminGroup ??
       firstEnv("NEXT_PUBLIC_AUTH_ADMIN_GROUP", "AUTH_ADMIN_GROUP") ??
       "admin",
+    oauthDomain:
+      overrides.oauthDomain ??
+      firstEnv("NEXT_PUBLIC_COGNITO_OAUTH_DOMAIN", "COGNITO_OAUTH_DOMAIN"),
+    oauthRedirectSignIn:
+      overrides.oauthRedirectSignIn ??
+      envList(firstEnv("NEXT_PUBLIC_OAUTH_REDIRECT_SIGN_IN", "OAUTH_REDIRECT_SIGN_IN")),
+    oauthRedirectSignOut:
+      overrides.oauthRedirectSignOut ??
+      envList(firstEnv("NEXT_PUBLIC_OAUTH_REDIRECT_SIGN_OUT", "OAUTH_REDIRECT_SIGN_OUT")),
+    oauthScopes:
+      overrides.oauthScopes ??
+      envList(firstEnv("NEXT_PUBLIC_OAUTH_SCOPES", "OAUTH_SCOPES")),
+  };
+}
+
+/** Build Amplify's `loginWith.oauth` block from config. Redirects default to the
+ *  current origin (`/login` in, `/` out) so no per-site env is needed — Amplify
+ *  requires these exact URLs to be registered as the client's CallbackURLs. */
+function oauthConfig(config: AuthConfig) {
+  if (!config.oauthDomain) return undefined;
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : undefined;
+  const redirectSignIn =
+    config.oauthRedirectSignIn ?? (origin ? [`${origin}/login`] : []);
+  const redirectSignOut =
+    config.oauthRedirectSignOut ?? (origin ? [`${origin}/`] : []);
+  return {
+    domain: config.oauthDomain,
+    scopes: config.oauthScopes ?? ["openid", "email", "profile"],
+    redirectSignIn,
+    redirectSignOut,
+    responseType: "code" as const,
+    providers: ["Google" as const],
   };
 }
 
 function ensureConfigured(): AuthConfig {
   const config = resolveConfig();
   if (!applied && config.userPoolId && config.userPoolClientId) {
+    const oauth = oauthConfig(config);
     Amplify.configure({
       Auth: {
         Cognito: {
           userPoolId: config.userPoolId,
           userPoolClientId: config.userPoolClientId,
+          ...(oauth ? { loginWith: { oauth } } : {}),
         },
       },
     });
@@ -84,6 +130,19 @@ function ensureConfigured(): AuthConfig {
 export function authEnabled(): boolean {
   const config = resolveConfig();
   return !!config.userPoolId && !!config.userPoolClientId;
+}
+
+/** Federated sign-in (Google) is wired iff a Hosted-UI domain is configured. */
+export function oauthEnabled(): boolean {
+  return !!resolveConfig().oauthDomain;
+}
+
+/** Redirect to Cognito's Hosted UI to sign in with Google. On return, Amplify
+ *  exchanges the `?code=` for tokens automatically (no callback code needed) —
+ *  the app's `getCurrentUser()` then resolves the federated session. */
+export async function signInWithGoogle(): Promise<void> {
+  ensureConfigured();
+  await amplifySignInWithRedirect({ provider: "Google" });
 }
 
 /** The configured admin group name (snapshot; `getCurrentUser` reads it live). */

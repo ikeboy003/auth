@@ -2,10 +2,12 @@
 export {
   ADMIN_GROUP,
   authEnabled,
+  oauthEnabled,
   configureAuth,
   getCurrentUser,
   getIdToken,
   signIn,
+  signInWithGoogle,
   signUp,
   confirmSignUp,
   resendSignUpCode,

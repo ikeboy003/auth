@@ -13,10 +13,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Hub } from "aws-amplify/utils";
 import {
   configureAuth,
   getCurrentUser,
   signIn as coreSignIn,
+  signInWithGoogle as coreSignInWithGoogle,
   signUp as coreSignUp,
   confirmSignUp as coreConfirmSignUp,
   resendSignUpCode as coreResendSignUpCode,
@@ -28,6 +30,10 @@ export type AuthState = {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Federated sign-in via Cognito Hosted UI (Google). Navigates away to the
+   *  provider; the session resolves on return. No-op unless a Hosted-UI domain
+   *  is configured (`oauthEnabled()`). */
+  signInWithGoogle: () => Promise<void>;
   /** Register a new account — Cognito emails a confirmation code. Optional
    *  `attributes` set Cognito standard attrs (name/phone/birthdate) at sign-up. */
   signUp: (
@@ -71,6 +77,19 @@ export function AuthProvider({
 
   useEffect(() => {
     refresh();
+    // After a Google redirect returns, Amplify exchanges the `?code=` for tokens
+    // asynchronously — the mount refresh() above can run before that finishes.
+    // Re-resolve the user when the exchange completes (or clear on sign-out).
+    const stop = Hub.listen("auth", ({ payload }) => {
+      if (
+        payload.event === "signInWithRedirect" ||
+        payload.event === "signedIn" ||
+        payload.event === "signedOut"
+      ) {
+        refresh();
+      }
+    });
+    return stop;
   }, [refresh]);
 
   const signIn = useCallback(
@@ -80,6 +99,11 @@ export function AuthProvider({
     },
     [refresh],
   );
+
+  // Navigates away to the Hosted UI; the Hub listener refreshes on return.
+  const signInWithGoogle = useCallback(async () => {
+    await coreSignInWithGoogle();
+  }, []);
 
   // Sign-up + confirm don't establish a session (the user signs in afterward),
   // so they don't refresh() — they just normalize the email and delegate.
@@ -109,6 +133,7 @@ export function AuthProvider({
         user,
         loading,
         signIn,
+        signInWithGoogle,
         signUp,
         confirmSignUp,
         resendSignUpCode,

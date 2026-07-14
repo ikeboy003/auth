@@ -26,4 +26,16 @@ export type AuthConfig = {
   userPoolClientId?: string;
   /** Cognito group that grants elevated access. Defaults to `"admin"`. */
   adminGroup: string;
+  /** Hosted-UI domain enabling federated sign-in (Google/OIDC), e.g.
+   *  `"ar-web-mcp.auth.us-east-1.amazoncognito.com"`. Omit → password-only.
+   *  Present → `signInWithGoogle()` and the redirect callback are wired. */
+  oauthDomain?: string;
+  /** Allowed post-login redirect URLs (must be registered as the app client's
+   *  CallbackURLs). Amplify picks the entry whose origin matches the current
+   *  page. Omit → defaults to `${location.origin}/login` at runtime. */
+  oauthRedirectSignIn?: string[];
+  /** Allowed post-logout redirect URLs. Omit → `${location.origin}/`. */
+  oauthRedirectSignOut?: string[];
+  /** OAuth scopes requested. Defaults to `["openid","email","profile"]`. */
+  oauthScopes?: string[];
 };
