@@ -241,10 +241,13 @@ export async function resendSignUpCode(email: string) {
  *  ("Access Token does not have required scopes") for every federated user,
  *  making them look signed-out. The ID token already holds sub/email/groups for
  *  both password and federated sign-ins, so we decode it and skip the call. */
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export async function getCurrentUser(
+  opts: { force?: boolean } = {},
+): Promise<AuthUser | null> {
   const config = ensureConfigured();
   if (!config.userPoolId || !config.userPoolClientId) return null;
   try {
+    if (opts.force) await refreshSession();
     const session = await fetchAuthSession();
     const claims = session.tokens?.idToken?.payload;
     if (!claims) return null; // no valid session
@@ -261,13 +264,74 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
-/** The Cognito ID token (JWT) — send as the Bearer so postgREST RLS applies. */
-export async function getIdToken(): Promise<string | null> {
+/** The Cognito ID token (JWT) — send as the Bearer so postgREST RLS applies.
+ *
+ *  `force` re-mints the token from the refresh token instead of returning the
+ *  cached one. See `refreshSession` for why that is the ONLY way an authorization
+ *  change reaches a signed-in browser. */
+export async function getIdToken(
+  opts: { force?: boolean } = {},
+): Promise<string | null> {
   ensureConfigured();
+  if (opts.force) return refreshSession();
   try {
     const session = await fetchAuthSession();
     return session.tokens?.idToken?.toString() ?? null;
   } catch {
     return null;
   }
+}
+
+// ── Re-minting the session ───────────────────────────────────────────────────
+//
+// WHY THIS EXISTS. Cognito stamps a user's attributes and groups INTO the ID
+// token at issuance. An operator who promotes someone — a `custom:role` write, a
+// group add — changes the user record, not the token already sitting in that
+// person's browser. Amplify serves the cached token out of localStorage until it
+// expires (an hour by default), so the promoted user keeps presenting the claims
+// they had at login and the API keeps refusing them. Reloading the page does
+// NOTHING: the reload re-reads the same cached token. Signing out and back in
+// works only because it mints a new one, which is why the symptom reads as "you
+// have to log in again to get your permissions."
+//
+// THE FIX IS A REFRESH, NOT A RE-LOGIN. `forceRefresh` runs REFRESH_TOKEN_AUTH,
+// and Cognito builds those fresh tokens from the user's CURRENT attributes and
+// groups. So the new claims arrive without touching the user's credentials.
+//
+// COALESCED ON PURPOSE. A page that fires a dozen queries at once will see a
+// dozen refusals at once. Each one asking for its own refresh would send a dozen
+// REFRESH_TOKEN_AUTH calls for one stale token, so concurrent callers share the
+// in-flight promise, and a short floor keeps a retry loop from hammering Cognito
+// when the refusal is genuine rather than stale.
+
+let inflightRefresh: Promise<string | null> | null = null;
+let lastRefreshAt = 0;
+const REFRESH_MIN_INTERVAL_MS = 10_000;
+
+/** Mint a NEW ID token from the refresh token, picking up any attribute/group
+ *  change made since login. Concurrent calls share one refresh; calls inside the
+ *  cooldown return the current cached token instead of re-hitting Cognito.
+ *  Returns null when there is no session to refresh. */
+export async function refreshSession(): Promise<string | null> {
+  ensureConfigured();
+  if (inflightRefresh) return inflightRefresh;
+
+  const now = Date.now();
+  if (now - lastRefreshAt < REFRESH_MIN_INTERVAL_MS) return getIdToken();
+  lastRefreshAt = now;
+
+  inflightRefresh = (async () => {
+    try {
+      const session = await fetchAuthSession({ forceRefresh: true });
+      return session.tokens?.idToken?.toString() ?? null;
+    } catch {
+      // Refresh token expired or revoked — the caller's existing token is the
+      // best available answer, and the next 401 sends them to /login.
+      return null;
+    } finally {
+      inflightRefresh = null;
+    }
+  })();
+
+  return inflightRefresh;
 }

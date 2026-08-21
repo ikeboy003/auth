@@ -6,6 +6,7 @@ export {
   configureAuth,
   getCurrentUser,
   getIdToken,
+  refreshSession,
   signIn,
   signInWithGoogle,
   signUp,

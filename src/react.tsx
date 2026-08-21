@@ -46,7 +46,10 @@ export type AuthState = {
   /** Resend the sign-up confirmation code. */
   resendSignUpCode: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
-  refresh: () => Promise<void>;
+  /** Re-resolve the current user. Pass `{ force: true }` to re-mint the token
+   *  first, so a role or group changed since login is picked up without the user
+   *  signing out and back in. */
+  refresh: (opts?: { force?: boolean }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -70,13 +73,17 @@ export function AuthProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
-    setUser(await getCurrentUser());
+  const refresh = useCallback(async (opts: { force?: boolean } = {}) => {
+    setUser(await getCurrentUser(opts));
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    refresh();
+    // Force on mount: a full page load is the one moment a user who was just
+    // granted access will retry, and the cached token is exactly what would make
+    // that retry fail again. The refresh is coalesced and rate-floored in the
+    // core, so this costs at most one REFRESH_TOKEN_AUTH per load.
+    refresh({ force: true });
     // After a Google redirect returns, Amplify exchanges the `?code=` for tokens
     // asynchronously — the mount refresh() above can run before that finishes.
     // Re-resolve the user when the exchange completes (or clear on sign-out).
